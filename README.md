@@ -47,7 +47,7 @@ src/
 Update `src/test/resources/config.properties` with your test configuration:
 
 ```properties
-url=https://be.contentful.com
+url=https://www.google.com
 username=your-username
 password=your-password
 browser=chrome
