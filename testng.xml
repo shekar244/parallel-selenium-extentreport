@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<suite name="Contentful Test Suite" parallel="methods" thread-count="2" verbose="1">
+    
+    <!-- Configure listeners for extent reports -->
+    <listeners>
+        <listener class-name="com.contentful.test.utils.TestListener"/>
+    </listeners>
+    
+    <test name="Login Tests" parallel="methods" thread-count="2">
+        <classes>
+            <class name="com.contentful.test.tests.LoginTest">
+                <methods>
+                    <include name="testLoginWithValidCredentials"/>
+                    <include name="testLoginWithInvalidCredentials"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+</suite> 
