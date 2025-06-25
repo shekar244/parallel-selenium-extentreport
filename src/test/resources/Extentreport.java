@@ -47,6 +47,24 @@ public static void logResult(String resultStatus, String Step, String Descriptio
                     "<img class='modal-content' src='data:image/png;base64," + base64Image + "'/>" +
                 "</div>";
 
+String imgHtml =
+    "<style>" +
+        ".custom-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto;" +
+        "background-color: rgba(0,0,0,0.9); }" +
+        ".custom-modal img { margin: auto; display: block; max-width: 90%; max-height: 90%; padding-top: 60px; }" +
+        ".custom-modal:target { display: block; }" +
+        ".thumb-img { border: 1px solid #ccc; cursor: pointer; height: 200px; width: 300px; }" +
+    "</style>" +
+    // Thumbnail wrapped in link that points to modal by ID
+    "<a href='#" + uniqueId + "'>" +
+        "<img class='thumb-img' src='" + base64Src + "'/>" +
+    "</a>" +
+    // Modal itself using anchor behavior
+    "<div id='" + uniqueId + "' class='custom-modal'>" +
+        "<a href='#' style='position:absolute;top:20px;right:35px;font-size:40px;font-weight:bold;color:#fff;'>&times;</a>" +
+        "<img src='" + base64Src + "'/>" +
+    "</div>";
+        
         test.setDescription(Page);
 
         if (resultStatus.equalsIgnoreCase("Passed")) {
