@@ -64,6 +64,33 @@ String imgHtml =
         "<a href='#' style='position:absolute;top:20px;right:35px;font-size:40px;font-weight:bold;color:#fff;'>&times;</a>" +
         "<img src='" + base64Src + "'/>" +
     "</div>";
+
+
+  // for file opening 
+        String modalSetup = 
+    "<style>" +
+    "#lightboxModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); text-align: center; }" +
+    "#lightboxModal img { margin-top: 5%; max-width: 90%; max-height: 90%; }" +
+    "#lightboxModal span { position: absolute; top: 20px; right: 35px; color: white; font-size: 40px; font-weight: bold; cursor: pointer; }" +
+    "</style>" +
+    "<script>" +
+    "function showLightbox(src) { var m = document.getElementById('lightboxModal'); var i = document.getElementById('lightboxImage'); m.style.display = 'block'; i.src = src; }" +
+    "function closeLightbox() { document.getElementById('lightboxModal').style.display = 'none'; }" +
+    "</script>" +
+    "<div id='lightboxModal' onclick='closeLightbox()'>" +
+    "<span>&times;</span><img id='lightboxImage' src='' />" +
+    "</div>";
+    test.log(LogStatus.INFO, modalSetup);
+    String imgHtml = "<img src='data:image/png;base64," + base64Image + "' title='" + Step +
+    "' height='200' width='300' style='border:1px solid #ccc; cursor:pointer;' onclick=\"showLightbox('data:image/png;base64," + base64Image + "')\" />";
+        
+    public static boolean modalSetupInjected = false;
+
+        if (!modalSetupInjected) {
+    test.log(LogStatus.INFO, modalSetup);
+    modalSetupInjected = true;
+}
+
         
         test.setDescription(Page);
 
