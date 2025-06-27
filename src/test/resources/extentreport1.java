@@ -46,6 +46,15 @@ public static void logResult(String resultStatus, String Step, String Descriptio
             "</a>";
 
         // Add to report
+        String imgHtml =
+            "<div>" +
+                "<img src='data:image/png;base64," + base64Image + "' " +
+                "title='" + Step + "' height='200' width='300' " +
+                "style='border:1px solid #ccc; margin-bottom:5px;'/>" +
+                "<br/>" +
+                "<a href='" + relativePath + "' target='_blank' " +
+                "style='font-size:12px; color:#007bff;'>Click here to open full-size screenshot</a>" +
+            "</div>";
         test.setDescription(Page);
 
         if (resultStatus.equalsIgnoreCase("Passed")) {
