@@ -1,13 +1,12 @@
 import os
 import csv
 from bs4 import BeautifulSoup
-from datetime import datetime
 
-def extract_test_info_from_html(html_file):
-    with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
+def extract_tests_from_html(html_path):
+    with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
         soup = BeautifulSoup(f, "html.parser")
 
-    results = []
+    test_data = []
 
     for container in soup.find_all("div", class_="container"):
         test_name = "Unknown"
@@ -35,48 +34,55 @@ def extract_test_info_from_html(html_file):
         if end_span:
             test_end = end_span.text.strip()
 
-        # Fallback: use last test step timestamp if end time is missing
+        # Fallback to last step timestamp
         if not test_end or test_end.strip() == "":
-            step_timestamps = container.select("td.timestamp")
-            if step_timestamps:
-                last_step_time = step_timestamps[-1].text.strip()
+            timestamps = container.select("td.timestamp")
+            if timestamps:
+                last_step_time = timestamps[-1].text.strip()
                 if test_start and len(test_start.split()) == 2:
                     test_date = test_start.split()[0]
                     test_end = f"{test_date} {last_step_time}"
 
-        results.append({
+        test_data.append({
+            "Report": os.path.basename(html_path),
             "Test Name": test_name,
             "Test Status": test_status,
             "Start Time": test_start,
             "End Time": test_end
         })
 
-    return results
+    return test_data
 
 
-def write_to_csv(data, output_path):
+def extract_all_reports_from_folder(folder_path):
+    all_data = []
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith(".html"):
+                html_path = os.path.join(root, file)
+                print(f"🔍 Parsing: {html_path}")
+                test_info = extract_tests_from_html(html_path)
+                all_data.extend(test_info)
+
+    return all_data
+
+
+def write_to_csv(data, output_csv):
     if not data:
-        print("⚠️ No test data extracted.")
+        print("⚠️ No test data found.")
         return
 
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Test Name", "Test Status", "Start Time", "End Time"])
+    with open(output_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["Report", "Test Name", "Test Status", "Start Time", "End Time"])
         writer.writeheader()
         writer.writerows(data)
-    print(f"✅ Extracted test info written to: {output_path}")
+    print(f"✅ CSV saved at: {output_csv}")
 
 
-# ====== 🔁 USAGE SECTION ======
+# ======== 🔁 MAIN USAGE ==========
 if __name__ == "__main__":
-    # Replace with your input HTML file path
-    input_html = r"C:\Path\To\Your\extent_report.html"  # ⬅️ CHANGE THIS
+    input_folder = r"C:\Path\To\Your\Reports"  # 🔁 CHANGE this to your reports folder
+    output_csv = os.path.join(input_folder, "extent_test_summary.csv")
 
-    if not os.path.isfile(input_html):
-        print(f"❌ File not found: {input_html}")
-    else:
-        test_data = extract_test_info_from_html(input_html)
-        for entry in test_data:
-            print(entry)
-
-        output_csv = os.path.join(os.path.dirname(input_html), "extracted_test_info.csv")
-        write_to_csv(test_data, output_csv)
+    all_tests = extract_all_reports_from_folder(input_folder)
+    write_to_csv(all_tests, output_csv)
