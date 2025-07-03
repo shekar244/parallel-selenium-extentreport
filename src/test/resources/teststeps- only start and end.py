@@ -8,35 +8,36 @@ def extract_tests_from_html(html_path):
 
     test_data = []
 
-    for container in soup.find_all("div", class_="container"):
+    # Loop through all test case <li> elements
+    for test in soup.select("ul.test-collection > li"):
         test_name = "Unknown"
         test_status = "Unknown"
         test_start = ""
         test_end = ""
 
         # Test Name
-        name_span = container.find("span", class_="test-name")
+        name_span = test.select_one("span.test-name")
         if name_span:
             test_name = name_span.text.strip()
 
-        # Test Status
-        status_span = container.find("span", class_="test-status")
+        # Status
+        status_span = test.select_one("span.test-status")
         if status_span:
             test_status = status_span.text.strip()
 
         # Start Time
-        start_span = container.find("span", class_="test-started-time")
+        start_span = test.select_one("span.test-started-time")
         if start_span:
             test_start = start_span.text.strip()
 
-        # End Time - primary
-        end_span = container.find("span", class_="test-ended-time")
+        # End Time
+        end_span = test.select_one("span.test-ended-time")
         if end_span:
             test_end = end_span.text.strip()
 
-        # Fallback to last step timestamp
+        # Fallback to last test step timestamp
         if not test_end or test_end.strip() == "":
-            timestamps = container.select("td.timestamp")
+            timestamps = test.select("td.timestamp")
             if timestamps:
                 last_step_time = timestamps[-1].text.strip()
                 if test_start and len(test_start.split()) == 2:
@@ -44,7 +45,7 @@ def extract_tests_from_html(html_path):
                     test_end = f"{test_date} {last_step_time}"
 
         test_data.append({
-            "Report": os.path.basename(html_path),
+            "HTML Report": os.path.basename(html_path),  # ✅ Renamed for clarity
             "Test Name": test_name,
             "Test Status": test_status,
             "Start Time": test_start,
@@ -58,12 +59,11 @@ def extract_all_reports_from_folder(folder_path):
     all_data = []
     for root, dirs, files in os.walk(folder_path):
         for file in files:
-            if file.endswith(".html"):
+            if file.lower().endswith(".html"):
                 html_path = os.path.join(root, file)
-                print(f"🔍 Parsing: {html_path}")
+                print(f"🔍 Processing: {html_path}")
                 test_info = extract_tests_from_html(html_path)
                 all_data.extend(test_info)
-
     return all_data
 
 
@@ -73,15 +73,16 @@ def write_to_csv(data, output_csv):
         return
 
     with open(output_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Report", "Test Name", "Test Status", "Start Time", "End Time"])
+        writer = csv.DictWriter(f, fieldnames=["HTML Report", "Test Name", "Test Status", "Start Time", "End Time"])
         writer.writeheader()
         writer.writerows(data)
-    print(f"✅ CSV saved at: {output_csv}")
+
+    print(f"\n✅ CSV summary saved to:\n{output_csv}")
 
 
-# ======== 🔁 MAIN USAGE ==========
+# ========= 🔁 USAGE ==========
 if __name__ == "__main__":
-    input_folder = r"C:\Path\To\Your\Reports"  # 🔁 CHANGE this to your reports folder
+    input_folder = r"C:\Path\To\Your\Reports"  # ⬅️ Update this
     output_csv = os.path.join(input_folder, "extent_test_summary.csv")
 
     all_tests = extract_all_reports_from_folder(input_folder)
