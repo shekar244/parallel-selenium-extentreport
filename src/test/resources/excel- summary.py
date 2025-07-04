@@ -1,12 +1,13 @@
 import os
-import csv
 import pandas as pd
 from datetime import datetime
 from bs4 import BeautifulSoup
 
+# === Configuration ===
 PROCESSED_LOG_FILE = "processed_files.csv"
 DATETIME_FORMAT = "%m/%d/%Y %H:%M:%S"
 
+# === Load processed file names to avoid re-processing ===
 def load_processed_files():
     if os.path.exists(PROCESSED_LOG_FILE):
         return set(pd.read_csv(PROCESSED_LOG_FILE)['filename'])
@@ -20,6 +21,7 @@ def save_processed_file(filename):
             f.write("filename\n")
         f.write(f"{filename}\n")
 
+# === Extract test data from one HTML file ===
 def extract_tests_from_html(html_path):
     with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
         soup = BeautifulSoup(f, "html.parser")
@@ -33,27 +35,23 @@ def extract_tests_from_html(html_path):
         test_end = ""
         duration = ""
 
-        # Test Name
         name_span = test.select_one("span.test-name")
         if name_span:
             test_name = name_span.text.strip()
 
-        # Status
         status_span = test.select_one("span.test-status")
         if status_span:
             test_status = status_span.text.strip()
 
-        # Start Time
         start_span = test.select_one("span.test-started-time")
         if start_span:
             test_start = start_span.text.strip()
 
-        # End Time
         end_span = test.select_one("span.test-ended-time")
         if end_span:
             test_end = end_span.text.strip()
 
-        # Fallback to last test step timestamp
+        # Fallback if end time is missing
         if not test_end or test_end.strip() == "":
             timestamps = test.select("td.timestamp")
             if timestamps:
@@ -62,14 +60,17 @@ def extract_tests_from_html(html_path):
                     test_date = test_start.split()[0]
                     test_end = f"{test_date} {last_step_time}"
 
-        # Calculate duration
+        # Duration calculation
         try:
             if test_start and test_end:
                 start_dt = datetime.strptime(test_start, DATETIME_FORMAT)
                 end_dt = datetime.strptime(test_end, DATETIME_FORMAT)
                 duration = round((end_dt - start_dt).total_seconds() / 60, 2)
-        except:
-            duration = "Invalid"
+            else:
+                duration = ""
+        except Exception as e:
+            print(f"⚠️  Error parsing duration for {test_name}: {e}")
+            duration = ""
 
         test_data.append({
             "HTML Report": os.path.basename(html_path),
@@ -82,32 +83,25 @@ def extract_tests_from_html(html_path):
 
     return test_data
 
+# === Generate summary report DataFrame ===
 def summarize_test_durations(df):
-    # Convert to datetime
     df["Start Time"] = pd.to_datetime(df["Start Time"], errors="coerce")
     df["End Time"] = pd.to_datetime(df["End Time"], errors="coerce")
-
-    # Drop incomplete rows
     df = df.dropna(subset=["Start Time", "End Time"])
 
-    # Duration
-    df["Duration (mins)"] = (df["End Time"] - df["Start Time"]).dt.total_seconds() / 60
+    df["Duration (mins)"] = round((df["End Time"] - df["Start Time"]).dt.total_seconds() / 60, 2)
     df["Start+Duration"] = list(zip(df["Start Time"], df["Duration (mins)"]))
 
-    # Sorted runs per test
     grouped = df.groupby("Test Name")["Start+Duration"].agg(
         SortedRuns=lambda x: [d for _, d in sorted(x)]
     ).reset_index()
 
-    # Summary stats
     agg_stats = df.groupby("Test Name")["Duration (mins)"].agg(
         Count="count", Total_Time="sum", Max_Time="max"
     ).reset_index()
 
-    # Merge
     merged = pd.merge(grouped, agg_stats, on="Test Name")
 
-    # Expand run columns
     max_runs = merged["SortedRuns"].apply(len).max()
     run_columns = pd.DataFrame(merged["SortedRuns"].tolist(),
                                columns=[f"run-{i+1}" for i in range(max_runs)])
@@ -119,6 +113,7 @@ def summarize_test_durations(df):
 
     return summary_df
 
+# === Main runner to process folder and generate Excel ===
 def extract_all_reports_from_folder(folder_path, output_excel):
     all_data = []
     processed = load_processed_files()
@@ -144,12 +139,12 @@ def extract_all_reports_from_folder(folder_path, output_excel):
             df.to_excel(writer, index=False, sheet_name="test run details")
             summary_df.to_excel(writer, index=False, sheet_name="summary report")
 
-        print(f"✅ {len(df)} tests written to '{output_excel}' with summary.")
+        print(f"\n✅ {len(df)} test entries written to '{output_excel}' with summary.")
     else:
-        print("⚠️ No new HTML reports to process.")
+        print("\n⚠️ No new HTML reports to process.")
 
-# === Example Usage ===
+# === Example usage ===
 if __name__ == "__main__":
-    folder_to_scan = "Reports"  # Change this path as needed
+    folder_to_scan = "Reports"  # Update this to your HTML reports folder
     output_excel = "Test_Run_Details.xlsx"
     extract_all_reports_from_folder(folder_to_scan, output_excel)
