@@ -180,6 +180,7 @@ class ExcelDescriptionProcessor:
     def parse_description_to_steps(self, description_text: str) -> Tuple[str, str]:
         """
         Parse the description text and extract structured steps as single cell values.
+        Handles multi-line content within pipe-separated fields as raw text.
         
         Args:
             description_text (str): The pipe-separated description text
@@ -193,8 +194,108 @@ class ExcelDescriptionProcessor:
         design_steps = []
         expected_results = []
         
-        # Split by newlines to get each step line
-        lines = str(description_text).split('\n')
+        # Convert to string and normalize line endings
+        text = str(description_text).replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Split into potential step blocks by looking for step patterns
+        # Use regex to find step patterns like "|Step-1|" or "| Step-1|"
+        import re
+        
+        # Find all step patterns and their positions (exclude header patterns)
+        step_pattern = r'\|\s*Step[-\d][^|]*\|'  # Match Step-1, Step1, etc. but not "Step No"
+        step_matches = list(re.finditer(step_pattern, text, re.IGNORECASE))
+        
+        if not step_matches:
+            # Fallback to line-by-line parsing if no step patterns found
+            return self._parse_line_by_line(text)
+        
+        # Process each step block
+        for i, match in enumerate(step_matches):
+            # Get the start of this step
+            start_pos = match.start()
+            
+            # Find the end position (start of next step or end of text)
+            if i + 1 < len(step_matches):
+                end_pos = step_matches[i + 1].start()
+            else:
+                end_pos = len(text)
+            
+            # Extract the complete step block
+            step_block = text[start_pos:end_pos].strip()
+            
+            # Parse this step block
+            parsed_step = self._parse_step_block(step_block)
+            if parsed_step:
+                design_steps.append(parsed_step['design'])
+                expected_results.append(parsed_step['result'])
+        
+        # Return the results
+        if design_steps:
+            design_steps_text = '\n'.join(design_steps)
+            expected_results_text = '\n'.join(expected_results)
+        else:
+            design_steps_text = ""
+            expected_results_text = ""
+        
+        return design_steps_text, expected_results_text
+    
+    def _parse_step_block(self, step_block: str) -> dict:
+        """
+        Parse a single step block that may contain newlines within pipe-separated content.
+        
+        Args:
+            step_block (str): A block of text containing one step
+            
+        Returns:
+            dict: Parsed step information or None if parsing fails
+        """
+        try:
+            # Remove leading/trailing whitespace and pipes
+            step_block = step_block.strip()
+            
+            # Split by pipes, but be careful about content with newlines
+            # Remove leading and trailing pipes if they exist
+            if step_block.startswith('|'):
+                step_block = step_block[1:]
+            if step_block.endswith('|'):
+                step_block = step_block[:-1]
+            
+            # Split by pipe, but limit to ensure we get step, action, result
+            parts = step_block.split('|')
+            
+            if len(parts) >= 3:
+                step_num = parts[0].strip()
+                action = parts[1].strip()
+                result = '|'.join(parts[2:]).strip()  # Join remaining parts in case result contains pipes
+                
+                # Clean up any extra newlines but preserve intentional ones
+                action = ' '.join(action.split())  # Normalize whitespace but keep content
+                result = ' '.join(result.split())  # Normalize whitespace but keep content
+                
+                return {
+                    'design': f"{step_num}: {action}",
+                    'result': f"{step_num}: {result}"
+                }
+            
+        except Exception as e:
+            print(f"  ⚠️  Warning: Could not parse step block: {step_block[:50]}...")
+        
+        return None
+    
+    def _parse_line_by_line(self, text: str) -> Tuple[str, str]:
+        """
+        Fallback method to parse line by line (original logic).
+        
+        Args:
+            text (str): The description text
+            
+        Returns:
+            tuple: (design_steps, expected_results)
+        """
+        design_steps = []
+        expected_results = []
+        
+        lines = text.split('\n')
         
         for line in lines:
             line = line.strip()
@@ -213,19 +314,13 @@ class ExcelDescriptionProcessor:
                     result = parts[2]
                     
                     # Store with step numbers as before
-                    design_steps.append(f"{step_num}: {action.strip()}")  # Step number + action
-                    expected_results.append(f"{step_num}: {result.strip()}")  # Step number + result
+                    design_steps.append(f"{step_num}: {action.strip()}")
+                    expected_results.append(f"{step_num}: {result.strip()}")
         
-        # Return clean single cell values
         if design_steps:
-            # Join multiple steps with newlines for single cell display
-            design_steps_text = '\n'.join(design_steps)
-            expected_results_text = '\n'.join(expected_results)
+            return '\n'.join(design_steps), '\n'.join(expected_results)
         else:
-            design_steps_text = ""
-            expected_results_text = ""
-        
-        return design_steps_text, expected_results_text
+            return "", ""
     
     def parse_description_to_individual_steps(self, description_text: str) -> list:
         """
