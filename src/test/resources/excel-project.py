@@ -241,46 +241,104 @@ class ExcelDescriptionProcessor:
     
     def _parse_step_block(self, step_block: str) -> dict:
         """
-        Parse a single step block that may contain newlines within pipe-separated content.
+        Parse a single step block that may contain multiple pipes within content.
+        Strategy: Everything from Step-X to next Step-Y is one block, split intelligently.
         
         Args:
-            step_block (str): A block of text containing one step
+            step_block (str): A block of text containing one step with potentially multiple pipes
             
         Returns:
             dict: Parsed step information or None if parsing fails
         """
         try:
-            # Remove leading/trailing whitespace and pipes
+            # Remove leading/trailing whitespace
             step_block = step_block.strip()
             
-            # Split by pipes, but be careful about content with newlines
             # Remove leading and trailing pipes if they exist
             if step_block.startswith('|'):
                 step_block = step_block[1:]
             if step_block.endswith('|'):
                 step_block = step_block[:-1]
             
-            # Split by pipe, but limit to ensure we get step, action, result
-            parts = step_block.split('|')
+            # Split by pipe to get all parts
+            all_parts = [part.strip() for part in step_block.split('|')]
             
-            if len(parts) >= 3:
-                step_num = parts[0].strip()
-                action = parts[1].strip()
-                result = '|'.join(parts[2:]).strip()  # Join remaining parts in case result contains pipes
-                
-                # Clean up any extra newlines but preserve intentional ones
-                action = ' '.join(action.split())  # Normalize whitespace but keep content
-                result = ' '.join(result.split())  # Normalize whitespace but keep content
-                
-                return {
-                    'design': f"{step_num}: {action}",
-                    'result': f"{step_num}: {result}"
-                }
+            # Filter out empty parts
+            parts = [part for part in all_parts if part]
+            
+            if len(parts) < 2:
+                print(f"  ⚠️  Not enough parts in step block: {parts}")
+                return None
+            
+            # First part is always the step number
+            step_num = parts[0].strip()
+            
+            # Now we need to intelligently split the remaining parts into design and expected
+            remaining_parts = parts[1:]
+            
+            # Strategy: Find the midpoint or use pattern recognition
+            design_steps, expected_results = self._split_content_intelligently(remaining_parts)
+            
+            # Clean up whitespace while preserving structure
+            design_text = ' '.join(design_steps.split()) if design_steps else ""
+            expected_text = ' '.join(expected_results.split()) if expected_results else ""
+            
+            return {
+                'design': f"{step_num}: {design_text}",
+                'result': f"{step_num}: {expected_text}"
+            }
             
         except Exception as e:
-            print(f"  ⚠️  Warning: Could not parse step block: {step_block[:50]}...")
+            print(f"  ⚠️  Warning: Could not parse step block: {step_block[:50]}... Error: {e}")
         
         return None
+    
+    def _split_content_intelligently(self, parts: list) -> tuple:
+        """
+        Intelligently split the content parts into design steps and expected results.
+        
+        Args:
+            parts (list): List of content parts between pipes
+            
+        Returns:
+            tuple: (design_steps, expected_results)
+        """
+        if not parts:
+            return "", ""
+        
+        if len(parts) == 1:
+            # Only one part, use it as design step
+            return parts[0], ""
+        
+        # Look for patterns that might indicate expected results
+        expected_keywords = ['should', 'expected', 'result', 'verify', 'confirm', 'display', 'show']
+        
+        # Find potential split points
+        split_index = None
+        
+        # Strategy 1: Look for keywords that indicate expected results
+        for i, part in enumerate(parts):
+            part_lower = part.lower()
+            if any(keyword in part_lower for keyword in expected_keywords):
+                split_index = i
+                break
+        
+        # Strategy 2: If no keywords found, split roughly in the middle
+        if split_index is None:
+            if len(parts) == 2:
+                split_index = 1  # First part is design, second is expected
+            else:
+                split_index = len(parts) // 2  # Split in middle
+        
+        # Split the parts
+        design_parts = parts[:split_index] if split_index > 0 else parts[:1]
+        expected_parts = parts[split_index:] if split_index < len(parts) else []
+        
+        # Join the parts
+        design_text = ' | '.join(design_parts) if design_parts else ""
+        expected_text = ' | '.join(expected_parts) if expected_parts else ""
+        
+        return design_text, expected_text
     
     def _parse_line_by_line(self, text: str) -> Tuple[str, str]:
         """
