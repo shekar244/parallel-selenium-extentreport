@@ -81,27 +81,34 @@ from typing import Tuple, Optional
 # ========================================
 EXCEL_FILE = "Book1.xlsx"          # Excel file to process (change this to your file name)
 SHEET_NAME = "Input"               # Sheet name containing the data (change if different)
-CREATE_BACKUP = False               # Whether to create backup before processing (True/False)
+CREATE_BACKUP = False              # Whether to create backup before processing (True/False)
+FORCE_REPROCESS = True             # Process ALL rows even if columns B & C have data (True/False)
+INDIVIDUAL_RECORDS = False         # Create individual rows for each step (True/False)
 
 # Examples:
 # EXCEL_FILE = "MyTestData.xlsx"
 # SHEET_NAME = "TestCases" 
 # CREATE_BACKUP = False
+# FORCE_REPROCESS = False          # Only process empty cells (default behavior)
 # ========================================
 
 class ExcelDescriptionProcessor:
     """Main class for processing Excel description columns."""
     
-    def __init__(self, file_path: str, sheet_name: str = 'Input'):
+    def __init__(self, file_path: str, sheet_name: str = 'Input', force_reprocess: bool = False, individual_records: bool = False):
         """
         Initialize the processor.
         
         Args:
             file_path (str): Path to the Excel file
             sheet_name (str): Name of the sheet to process (default: 'Input')
+            force_reprocess (bool): Process all rows even if columns B & C have data (default: False)
+            individual_records (bool): Create individual rows for each step (default: False)
         """
         self.file_path = file_path
         self.sheet_name = sheet_name
+        self.force_reprocess = force_reprocess
+        self.individual_records = individual_records
         self.backup_created = False
     
     def create_backup(self) -> bool:
@@ -172,13 +179,13 @@ class ExcelDescriptionProcessor:
     
     def parse_description_to_steps(self, description_text: str) -> Tuple[str, str]:
         """
-        Parse the description text and extract structured steps.
+        Parse the description text and extract structured steps as single cell values.
         
         Args:
             description_text (str): The pipe-separated description text
             
         Returns:
-            tuple: (design_steps, expected_results)
+            tuple: (design_steps, expected_results) - single cell values, not combined
         """
         if pd.isna(description_text) or not description_text:
             return "", ""
@@ -205,17 +212,59 @@ class ExcelDescriptionProcessor:
                     action = parts[1]
                     result = parts[2]
                     
-                    # Format for column B (Design Steps)
-                    design_steps.append(f"{step_num}: {action}")
-                    
-                    # Format for column C (Expected Results)  
-                    expected_results.append(f"{step_num}: {result}")
+                    # Store with step numbers as before
+                    design_steps.append(f"{step_num}: {action.strip()}")  # Step number + action
+                    expected_results.append(f"{step_num}: {result.strip()}")  # Step number + result
         
-        # Join all steps with newlines
-        design_steps_text = '\n'.join(design_steps)
-        expected_results_text = '\n'.join(expected_results)
+        # Return clean single cell values
+        if design_steps:
+            # Join multiple steps with newlines for single cell display
+            design_steps_text = '\n'.join(design_steps)
+            expected_results_text = '\n'.join(expected_results)
+        else:
+            design_steps_text = ""
+            expected_results_text = ""
         
         return design_steps_text, expected_results_text
+    
+    def parse_description_to_individual_steps(self, description_text: str) -> list:
+        """
+        Parse the description text and extract individual step records.
+        
+        Args:
+            description_text (str): The pipe-separated description text
+            
+        Returns:
+            list: List of dictionaries containing individual step information
+        """
+        if pd.isna(description_text) or not description_text:
+            return []
+        
+        individual_steps = []
+        
+        # Split by newlines to get each step line
+        lines = str(description_text).split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            # Skip header line and empty lines
+            if not line or 'Step No' in line:
+                continue
+                
+            # Split by pipe and extract step information
+            if '|' in line:
+                parts = [part.strip() for part in line.split('|') if part.strip()]
+                
+                # Expected format after splitting: ['Step-X', 'Action', 'Expected Result']
+                if len(parts) >= 3:
+                    step_info = {
+                        'step_number': parts[0],
+                        'design_step': parts[1],
+                        'expected_result': parts[2]
+                    }
+                    individual_steps.append(step_info)
+        
+        return individual_steps
     
     def update_excel_columns(self) -> bool:
         """
@@ -243,9 +292,20 @@ class ExcelDescriptionProcessor:
                 current_design_steps = row.get('Description (Design Steps)')
                 current_expected_result = row.get('Description (Expected Result)')
                 
-                # Only update if columns B or C are empty (NaN)
-                if pd.isna(current_design_steps) or pd.isna(current_expected_result):
-                    print(f"\n📝 Processing Row {idx + 1}:")
+                # Determine if we should process this row
+                should_process = False
+                if self.force_reprocess:
+                    # Force reprocess mode - process all rows
+                    should_process = True
+                    process_reason = "Force reprocess enabled"
+                else:
+                    # Normal mode - only process if columns B or C are empty
+                    if pd.isna(current_design_steps) or pd.isna(current_expected_result):
+                        should_process = True
+                        process_reason = "Empty columns detected"
+                
+                if should_process:
+                    print(f"\n📝 Processing Row {idx + 1}: ({process_reason})")
                     
                     # Parse the description
                     design_steps, expected_results = self.parse_description_to_steps(description)
@@ -254,15 +314,21 @@ class ExcelDescriptionProcessor:
                         # Update the Excel cells (using 1-based indexing for openpyxl)
                         excel_row = idx + 2  # +2 because Excel is 1-indexed and we have headers
                         
-                        if pd.isna(current_design_steps) and design_steps:
-                            ws.cell(row=excel_row, column=2, value=design_steps)  # Column B
-                            print(f"  ✅ Updated Column B (Design Steps)")
-                            print(f"     Content: {design_steps.replace(chr(10), ' | ')}")  # Show on one line
+                        # Update Column B if we have design steps
+                        if design_steps:
+                            if self.force_reprocess or pd.isna(current_design_steps):
+                                ws.cell(row=excel_row, column=2, value=design_steps)  # Column B
+                                action = "Updated" if self.force_reprocess and pd.notna(current_design_steps) else "Added"
+                                print(f"  ✅ {action} Column B (Design Steps)")
+                                print(f"     Content: {design_steps.replace(chr(10), ' | ')}")  # Show on one line
                         
-                        if pd.isna(current_expected_result) and expected_results:
-                            ws.cell(row=excel_row, column=3, value=expected_results)  # Column C
-                            print(f"  ✅ Updated Column C (Expected Results)")
-                            print(f"     Content: {expected_results.replace(chr(10), ' | ')}")  # Show on one line
+                        # Update Column C if we have expected results
+                        if expected_results:
+                            if self.force_reprocess or pd.isna(current_expected_result):
+                                ws.cell(row=excel_row, column=3, value=expected_results)  # Column C
+                                action = "Updated" if self.force_reprocess and pd.notna(current_expected_result) else "Added"
+                                print(f"  ✅ {action} Column C (Expected Results)")
+                                print(f"     Content: {expected_results.replace(chr(10), ' | ')}")  # Show on one line
                         
                         updates_made += 1
                     else:
@@ -283,6 +349,88 @@ class ExcelDescriptionProcessor:
             
         except Exception as e:
             print(f"❌ Error updating Excel file: {e}")
+            return False
+    
+    def create_individual_records(self) -> bool:
+        """
+        Create individual records for each step in a new sheet.
+        
+        Returns:
+            bool: True if creation was successful
+        """
+        try:
+            print("\n📋 Creating Individual Step Records")
+            print("=" * 60)
+            
+            # Read the original data
+            df = pd.read_excel(self.file_path, sheet_name=self.sheet_name)
+            
+            # Create list to store individual records
+            individual_records = []
+            
+            for idx, row in df.iterrows():
+                description = row['Description']
+                
+                print(f"\n📝 Processing Row {idx + 1} for individual records:")
+                
+                # Parse individual steps
+                steps = self.parse_description_to_individual_steps(description)
+                
+                if steps:
+                    for step_idx, step in enumerate(steps):
+                        record = {
+                            'Original_Row': idx + 1,
+                            'Step_Number': step['step_number'],
+                            'Design_Step': step['design_step'],
+                            'Expected_Result': step['expected_result'],
+                            'Original_Description': description
+                        }
+                        individual_records.append(record)
+                        print(f"  ✅ Step {step['step_number']}: {step['design_step']} → {step['expected_result']}")
+                else:
+                    print(f"  ⚠️  No valid steps found")
+            
+            if individual_records:
+                # Create DataFrame for individual records
+                records_df = pd.DataFrame(individual_records)
+                
+                print(f"\n📊 Created {len(individual_records)} individual step records")
+                
+                # Load workbook and add new sheet
+                from openpyxl import load_workbook
+                wb = load_workbook(self.file_path)
+                
+                # Create new sheet name
+                new_sheet_name = f"{self.sheet_name}_Individual_Steps"
+                
+                # Remove sheet if it already exists
+                if new_sheet_name in wb.sheetnames:
+                    wb.remove(wb[new_sheet_name])
+                    print(f"  ♻️  Replaced existing sheet: {new_sheet_name}")
+                
+                # Add the new sheet with individual records
+                with pd.ExcelWriter(self.file_path, engine='openpyxl', mode='a') as writer:
+                    records_df.to_excel(writer, sheet_name=new_sheet_name, index=False)
+                
+                print(f"✅ Individual records saved to sheet: {new_sheet_name}")
+                print(f"   Total records: {len(individual_records)}")
+                
+                # Show preview of the records
+                print(f"\n📋 Preview of Individual Records:")
+                print("-" * 60)
+                for i, record in enumerate(individual_records[:5]):  # Show first 5
+                    print(f"Record {i+1}: {record['Step_Number']} | {record['Design_Step']} | {record['Expected_Result']}")
+                
+                if len(individual_records) > 5:
+                    print(f"... and {len(individual_records) - 5} more records")
+                
+                return True
+            else:
+                print("❌ No individual records could be created")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error creating individual records: {e}")
             return False
     
     def verify_results(self) -> bool:
@@ -342,6 +490,10 @@ class ExcelDescriptionProcessor:
         print("=" * 60)
         print(f"File: {self.file_path}")
         print(f"Sheet: {self.sheet_name}")
+        mode = "Individual Records" if self.individual_records else "Combined Steps"
+        print(f"Mode: {mode}")
+        if self.force_reprocess:
+            print(f"Force Reprocess: Enabled")
         print("=" * 60)
         
         # Check if file exists
@@ -357,11 +509,17 @@ class ExcelDescriptionProcessor:
         if not self.examine_excel_structure():
             return False
         
-        # Step 2: Update columns
-        if not self.update_excel_columns():
-            return False
+        # Step 2: Update columns (if not individual records mode)
+        if not self.individual_records:
+            if not self.update_excel_columns():
+                return False
         
-        # Step 3: Verify results
+        # Step 3: Create individual records (if enabled)
+        if self.individual_records:
+            if not self.create_individual_records():
+                return False
+        
+        # Step 4: Verify results
         if not self.verify_results():
             return False
         
@@ -386,7 +544,7 @@ def main():
         sheet_name = SHEET_NAME  # Use configuration variable
     
     # Create processor instance
-    processor = ExcelDescriptionProcessor(file_path, sheet_name)
+    processor = ExcelDescriptionProcessor(file_path, sheet_name, force_reprocess=FORCE_REPROCESS, individual_records=INDIVIDUAL_RECORDS)
     
     # Run the processing
     success = processor.process(create_backup=CREATE_BACKUP)
