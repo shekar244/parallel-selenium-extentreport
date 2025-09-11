@@ -223,8 +223,8 @@ class ExcelDescriptionProcessor:
             # Extract the complete step block
             step_block = text[start_pos:end_pos].strip()
             
-            # Parse this step block
-            parsed_step = self._parse_step_block(step_block)
+            # Parse this step block (now handles newlines within pipes)
+            parsed_step = self._parse_step_block_with_newlines(step_block)
             if parsed_step:
                 design_steps.append(parsed_step['design'])
                 expected_results.append(parsed_step['result'])
@@ -339,6 +339,81 @@ class ExcelDescriptionProcessor:
         expected_text = ' | '.join(expected_parts) if expected_parts else ""
         
         return design_text, expected_text
+    
+    def _parse_step_block_with_newlines(self, step_block: str) -> dict:
+        """
+        Parse a step block that may contain newlines within pipe-separated content.
+        This method reconstructs broken pipe sequences and handles the original 3-column format.
+        
+        Args:
+            step_block (str): A block of text containing one step with potential newlines
+            
+        Returns:
+            dict: Parsed step information or None if parsing fails
+        """
+        try:
+            # Clean up the step block
+            step_block = step_block.strip()
+            
+            # First, let's try to reconstruct the logical pipe structure
+            # by joining lines that are part of the same logical content
+            
+            # Strategy: Flatten everything, then try to find the 3-part structure
+            # Format should be: |Step-X|Design Content|Expected Content|
+            
+            # Remove all newlines and extra spaces, but preserve pipe structure
+            flattened = ' '.join(step_block.split())
+            
+            # Find step number using regex
+            import re
+            step_match = re.search(r'\|\s*(Step[-\d][^|]*)\|', flattened)
+            if not step_match:
+                return self._parse_step_block(step_block)
+            
+            step_num = step_match.group(1).strip()
+            
+            # Find all pipe-separated content after the step number
+            # Remove the step number part and focus on the content
+            after_step = flattened[step_match.end():]
+            
+            # Now we need to split this into design and expected parts
+            # Look for patterns or split points
+            
+            # Try to find a reasonable split point
+            content_parts = []
+            current_part = ""
+            
+            for char in after_step:
+                if char == '|':
+                    if current_part.strip():
+                        content_parts.append(current_part.strip())
+                        current_part = ""
+                else:
+                    current_part += char
+            
+            # Add final part if exists
+            if current_part.strip():
+                content_parts.append(current_part.strip())
+            
+            if content_parts:
+                # If we have exactly 2 parts, perfect - design and expected
+                if len(content_parts) == 2:
+                    design_text = content_parts[0]
+                    expected_text = content_parts[1]
+                else:
+                    # Multiple parts - use intelligent splitting
+                    design_text, expected_text = self._split_content_intelligently(content_parts)
+                
+                return {
+                    'design': f"{step_num}: {design_text}",
+                    'result': f"{step_num}: {expected_text}"
+                }
+            
+        except Exception as e:
+            print(f"  ⚠️  Warning: Could not parse step block with newlines: {step_block[:50]}... Error: {e}")
+        
+        # Fallback to original method
+        return self._parse_step_block(step_block)
     
     def _parse_line_by_line(self, text: str) -> Tuple[str, str]:
         """
