@@ -342,26 +342,18 @@ class ExcelDescriptionProcessor:
     
     def _parse_step_block_with_newlines(self, step_block: str) -> dict:
         """
-        Parse a step block that may contain newlines within pipe-separated content.
-        This method reconstructs broken pipe sequences and handles the original 3-column format.
+        Parse a step block treating everything between |Step-X| and |Step-Y| as one string.
+        Then intelligently split that string into design steps and expected results.
         
         Args:
-            step_block (str): A block of text containing one step with potential newlines
+            step_block (str): A block of text containing one step with multiple pipes
             
         Returns:
             dict: Parsed step information or None if parsing fails
         """
         try:
-            # Clean up the step block
+            # Clean up the step block and flatten newlines to spaces
             step_block = step_block.strip()
-            
-            # First, let's try to reconstruct the logical pipe structure
-            # by joining lines that are part of the same logical content
-            
-            # Strategy: Flatten everything, then try to find the 3-part structure
-            # Format should be: |Step-X|Design Content|Expected Content|
-            
-            # Remove all newlines and extra spaces, but preserve pipe structure
             flattened = ' '.join(step_block.split())
             
             # Find step number using regex
@@ -372,48 +364,103 @@ class ExcelDescriptionProcessor:
             
             step_num = step_match.group(1).strip()
             
-            # Find all pipe-separated content after the step number
-            # Remove the step number part and focus on the content
+            # Get everything after the step number pattern
             after_step = flattened[step_match.end():]
             
-            # Now we need to split this into design and expected parts
-            # Look for patterns or split points
+            # Remove leading/trailing pipes if any
+            after_step = after_step.strip('|').strip()
             
-            # Try to find a reasonable split point
-            content_parts = []
-            current_part = ""
+            # Now we have the complete content string that may contain multiple pipes
+            # We need to split this intelligently into design and expected parts
             
-            for char in after_step:
-                if char == '|':
-                    if current_part.strip():
-                        content_parts.append(current_part.strip())
-                        current_part = ""
-                else:
-                    current_part += char
+            if not after_step:
+                return None
             
-            # Add final part if exists
-            if current_part.strip():
-                content_parts.append(current_part.strip())
+            # Strategy: Split the content string into design and expected
+            design_text, expected_text = self._split_complete_content_string(after_step)
             
-            if content_parts:
-                # If we have exactly 2 parts, perfect - design and expected
-                if len(content_parts) == 2:
-                    design_text = content_parts[0]
-                    expected_text = content_parts[1]
-                else:
-                    # Multiple parts - use intelligent splitting
-                    design_text, expected_text = self._split_content_intelligently(content_parts)
-                
-                return {
-                    'design': f"{step_num}: {design_text}",
-                    'result': f"{step_num}: {expected_text}"
-                }
+            return {
+                'design': f"{step_num}: {design_text}",
+                'result': f"{step_num}: {expected_text}"
+            }
             
         except Exception as e:
-            print(f"  ⚠️  Warning: Could not parse step block with newlines: {step_block[:50]}... Error: {e}")
+            print(f"  ⚠️  Warning: Could not parse step block: {step_block[:50]}... Error: {e}")
         
         # Fallback to original method
         return self._parse_step_block(step_block)
+    
+    def _split_complete_content_string(self, content_string: str) -> tuple:
+        """
+        Split a complete content string (with multiple pipes) into design and expected parts.
+        
+        Args:
+            content_string (str): The complete content between step markers
+            
+        Returns:
+            tuple: (design_text, expected_text)
+        """
+        try:
+            # Split by pipes to get all content segments
+            segments = [seg.strip() for seg in content_string.split('|') if seg.strip()]
+            
+            if not segments:
+                return "", ""
+            
+            if len(segments) == 1:
+                # Only one segment - use as design step
+                return segments[0], ""
+            
+            # Look for natural split points using keywords
+            expected_keywords = ['should', 'expected', 'result', 'verify', 'confirm', 'display', 'show', 'must', 'will']
+            
+            split_index = None
+            
+            # Strategy 1: Find the first segment that contains expected result keywords
+            for i, segment in enumerate(segments):
+                segment_lower = segment.lower()
+                if any(keyword in segment_lower for keyword in expected_keywords):
+                    split_index = i
+                    break
+            
+            # Strategy 2: If no clear keywords, try to find a logical split
+            if split_index is None:
+                # Look for segments that start with typical expected result patterns
+                expected_patterns = ['user should', 'page should', 'system should', 'application should', 
+                                   'data should', 'message should', 'screen should', 'form should']
+                
+                for i, segment in enumerate(segments):
+                    segment_lower = segment.lower()
+                    if any(pattern in segment_lower for pattern in expected_patterns):
+                        split_index = i
+                        break
+            
+            # Strategy 3: If still no clear split, use middle point
+            if split_index is None:
+                if len(segments) == 2:
+                    split_index = 1  # First is design, second is expected
+                else:
+                    # Split roughly in the middle, but lean towards more design steps
+                    split_index = max(1, len(segments) // 2)
+            
+            # Split the segments
+            design_segments = segments[:split_index] if split_index > 0 else segments[:1]
+            expected_segments = segments[split_index:] if split_index < len(segments) else []
+            
+            # Join segments with appropriate separators
+            design_text = ' | '.join(design_segments) if design_segments else ""
+            expected_text = ' | '.join(expected_segments) if expected_segments else ""
+            
+            return design_text, expected_text
+            
+        except Exception as e:
+            print(f"  ⚠️  Warning: Could not split content string: {content_string[:50]}... Error: {e}")
+            # Fallback: first half design, second half expected
+            segments = content_string.split('|')
+            mid = len(segments) // 2
+            design_text = ' | '.join(segments[:mid]) if mid > 0 else content_string
+            expected_text = ' | '.join(segments[mid:]) if mid < len(segments) else ""
+            return design_text, expected_text
     
     def _parse_line_by_line(self, text: str) -> Tuple[str, str]:
         """
