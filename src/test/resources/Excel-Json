@@ -1,0 +1,32 @@
+import pandas as pd
+import json
+
+def consolidate_excel_to_json(file_path, id_column, output_file="consolidated.json"):
+    # 1. Load the entire Excel file (None loads all sheets as a dict of DataFrames)
+    excel_data = pd.read_excel(file_path, sheet_name=None)
+    
+    consolidated = {}
+
+    for sheet_name, df in excel_data.items():
+        # Clean data: Replace NaN with None for JSON compatibility
+        df = df.where(pd.notnull(df), None)
+        
+        # Convert sheet to a dictionary indexed by the unique ID
+        sheet_dict = df.set_index(id_column).to_dict(orient='index')
+        
+        for record_id, attributes in sheet_dict.items():
+            # Initialize the record ID if not already in consolidated
+            if record_id not in consolidated:
+                consolidated[record_id] = {}
+            
+            # Nest the sheet's attributes under the sheet name
+            consolidated[record_id][sheet_name] = attributes
+
+    # 2. Save the result
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(consolidated, f, indent=4)
+    
+    print(f"Consolidation complete! Saved to {output_file}")
+
+# Usage: "TC_ID" is the column name present in all sheets
+consolidate_excel_to_json("TestData.xlsx", id_column="TC_ID")
